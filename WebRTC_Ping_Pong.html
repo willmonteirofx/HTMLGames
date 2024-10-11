@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Ping Pong</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: black;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        #gameCanvas {
+            border: 2px solid white;
+        }
+        #connectionControls {
+            margin-top: 20px;
+        }
+        input, button {
+            margin: 5px;
+            padding: 5px;
+        }
+        #scoreBoard {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        #gameOverMessage {
+            font-size: 36px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+        }
+        #playerNames {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="playerNames">
+        <span id="leftPlayerName"></span> vs <span id="rightPlayerName"></span>
+    </div>
+    <div id="scoreBoard">
+        <span id="leftScore">0</span> - <span id="rightScore">0</span>
+    </div>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <div id="connectionControls">
+        <input type="text" id="playerName" placeholder="Enter your name">
+        <input type="text" id="myPeerId" readonly>
+        <input type="text" id="hostPeerId" placeholder="Enter host's Peer ID">
+        <button id="connectButton">Connect</button>
+    </div>
+    <div id="gameOverMessage"></div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const paddleWidth = 10;
+        const paddleHeight = 100;
+        const ballSize = 10;
+
+        let leftPaddle = { y: canvas.height / 2 - paddleHeight / 2, dy: 0 };
+        let rightPaddle = { y: canvas.height / 2 - paddleHeight / 2, dy: 0 };
+        let ball = { x: canvas.width / 2, y: canvas.height / 2, dx: 5, dy: 5 };
+
+        let peer;
+        let conn;
+        let isHost = false;
+
+        let leftScore = 0;
+        let rightScore = 0;
+
+        const playerNameInput = document.getElementById('playerName');
+        const myPeerIdInput = document.getElementById('myPeerId');
+        const hostPeerIdInput = document.getElementById('hostPeerId');
+        const connectButton = document.getElementById('connectButton');
+        const leftScoreElement = document.getElementById('leftScore');
+        const rightScoreElement = document.getElementById('rightScore');
+        const gameOverMessage = document.getElementById('gameOverMessage');
+        const leftPlayerNameElement = document.getElementById('leftPlayerName');
+        const rightPlayerNameElement = document.getElementById('rightPlayerName');
+        const scoreBoardElement = document.getElementById('scoreBoard');
+
+        let playerName = '';
+        let opponentName = '';
+
+        function initPeer() {
+            peer = new Peer();
+            peer.on('open', (id) => {
+                console.log('My peer ID is: ' + id);
+                myPeerIdInput.value = id;
+            });
+            peer.on('connection', (connection) => {
+                conn = connection;
+                isHost = true;
+                setupConnection();
+            });
+        }
+
+        connectButton.addEventListener('click', () => {
+            playerName = playerNameInput.value;
+            const hostId = hostPeerIdInput.value;
+            if (hostId && playerName) {
+                conn = peer.connect(hostId);
+                setupConnection();
+            } else {
+                alert('Please enter your name and the host\'s Peer ID');
+            }
+        });
+
+        function setupConnection() {
+            conn.on('open', () => {
+                console.log('Connection established');
+                connectionControls.style.display = 'none';
+                canvas.style.display = 'block';
+                conn.send({ type: 'playerName', name: playerName });
+            });
+            conn.on('data', (data) => {
+                if (data.type === 'playerName') {
+                    opponentName = data.name;
+                    updatePlayerNames();
+                } else if (isHost) {
+                    rightPaddle.y = data.paddleY;
+                } else {
+                    leftPaddle.y = data.leftPaddleY;
+                    ball = data.ball;
+                    leftScore = data.leftScore;
+                    rightScore = data.rightScore;
+                    updateScoreBoard();
+                    checkGameOver();
+                }
+            });
+        }
+
+        function updatePlayerNames() {
+            if (isHost) {
+                leftPlayerNameElement.textContent = playerName;
+                rightPlayerNameElement.textContent = opponentName;
+            } else {
+                leftPlayerNameElement.textContent = opponentName;
+                rightPlayerNameElement.textContent = playerName;
+            }
+        }
+
+        function update() {
+            movePaddles();
+
+            if (isHost) {
+                // Ball movement
+                ball.x += ball.dx;
+                ball.y += ball.dy;
+
+                // Ball collision with top and bottom
+                if (ball.y <= 0 || ball.y >= canvas.height) {
+                    ball.dy *= -1;
+                }
+
+                // Ball collision with paddles
+                if (
+                    (ball.x <= paddleWidth && ball.y >= leftPaddle.y && ball.y <= leftPaddle.y + paddleHeight) ||
+                    (ball.x >= canvas.width - paddleWidth && ball.y >= rightPaddle.y && ball.y <= rightPaddle.y + paddleHeight)
+                ) {
+                    ball.dx *= -1;
+                }
+
+                // Reset ball if it goes out of bounds and update score
+                if (ball.x < 0) {
+                    rightScore++;
+                    resetBall();
+                } else if (ball.x > canvas.width) {
+                    leftScore++;
+                    resetBall();
+                }
+
+                updateScoreBoard();
+                checkGameOver();
+                conn.send({ ball: ball, leftPaddleY: leftPaddle.y, leftScore: leftScore, rightScore: rightScore });
+            } else {
+                conn.send({ paddleY: rightPaddle.y });
+            }
+        }
+
+        function resetBall() {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height / 2;
+            ball.dx = 5 * (Math.random() > 0.5 ? 1 : -1);
+            ball.dy = 5 * (Math.random() > 0.5 ? 1 : -1);
+        }
+
+        function updateScoreBoard() {
+            leftScoreElement.textContent = leftScore;
+            rightScoreElement.textContent = rightScore;
+        }
+
+        function checkGameOver() {
+            if (leftScore >= 10 || rightScore >= 10) {
+                gameOverMessage.style.display = 'block';
+                if ((isHost && leftScore >= 10) || (!isHost && rightScore >= 10)) {
+                    gameOverMessage.textContent = `${playerName} ganhou!`;
+                } else {
+                    gameOverMessage.textContent = `${opponentName} ganhou!`;
+                }
+                canvas.style.display = 'none';
+                scoreBoardElement.style.display = 'none';
+            }
+        }
+
+        function movePaddles() {
+            leftPaddle.y += leftPaddle.dy;
+            rightPaddle.y += rightPaddle.dy;
+
+            // Keep paddles within canvas bounds
+            leftPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, leftPaddle.y));
+            rightPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, rightPaddle.y));
+        }
+
+        function draw() {
+            // Clear canvas
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw paddles
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, leftPaddle.y, paddleWidth, paddleHeight);
+            ctx.fillRect(canvas.width - paddleWidth, rightPaddle.y, paddleWidth, paddleHeight);
+
+            // Draw ball
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ballSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function gameLoop() {
+            if (conn && conn.open) {
+                update();
+                draw();
+            }
+            requestAnimationFrame(gameLoop);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (isHost) {
+                if (e.key === 'w') {
+                    leftPaddle.dy = -5;
+                } else if (e.key === 's') {
+                    leftPaddle.dy = 5;
+                }
+            } else {
+                if (e.key === 'w') {
+                    rightPaddle.dy = -5;
+                } else if (e.key === 's') {
+                    rightPaddle.dy = 5;
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (isHost) {
+                if (e.key === 'w' || e.key === 's') {
+                    leftPaddle.dy = 0;
+                }
+            } else {
+                if (e.key === 'w' || e.key === 's') {
+                    rightPaddle.dy = 0;
+                }
+            }
+        });
+
+        canvas.style.display = 'none';
+        initPeer();
+        gameLoop();
+    </script>
+</body>
+</html>
