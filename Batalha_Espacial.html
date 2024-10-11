@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batalha Espacial: Estratégia para 2 Jogadores</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #000;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        #game-container {
+            text-align: center;
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+        }
+        .players-container {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .player-panel {
+            width: 45%;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .active-player {
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.7);
+        }
+        .resource {
+            font-size: 18px;
+            margin: 10px 0;
+        }
+        .bar {
+            width: 100%;
+            height: 20px;
+            background-color: #333;
+            margin-top: 5px;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .bar-fill {
+            height: 100%;
+        }
+        .health-bar { background-color: #ff4136; }
+        .shield-bar { background-color: #0074D9; }
+        .energy-bar { background-color: #2ECC40; }
+        button {
+            margin: 5px;
+            padding: 10px 15px;
+            font-size: 14px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #battle-log {
+            margin-top: 20px;
+            height: 100px;
+            overflow-y: scroll;
+            border: 1px solid #333;
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        #spaceships {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .spaceship {
+            width: 50px;
+            height: 50px;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            transform: rotate(90deg);
+        }
+        #spaceship1 {
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M50 10 L90 90 L50 70 L10 90 Z" fill="red"/></svg>');
+            margin-right: 250px;
+        }
+        #spaceship2 {
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M50 10 L90 90 L50 70 L10 90 Z" fill="blue"/></svg>');
+            transform: rotate(-90deg);
+            margin-left: 250px;
+        }
+        .value-popup {
+            position: absolute;
+            font-size: 14px;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <h1>Batalha Espacial</h1>
+        <div id="spaceships">
+            <div id="spaceship1" class="spaceship"></div>
+            <div id="spaceship2" class="spaceship"></div>
+        </div>
+        <div class="players-container">
+            <div class="player-panel" id="player1">
+                <h2>Jogador 1</h2>
+                <div class="resource">Vida: <span id="health1">100</span></div>
+                <div class="bar"><div id="healthBar1" class="bar-fill health-bar"></div></div>
+                <div class="resource">Escudos: <span id="shields1">50</span></div>
+                <div class="bar"><div id="shieldBar1" class="bar-fill shield-bar"></div></div>
+                <div class="resource">Energia: <span id="energy1">100</span></div>
+                <div class="bar"><div id="energyBar1" class="bar-fill energy-bar"></div></div>
+                <button onclick="action('attack', 1)">Atacar (-20 energia)</button>
+                <button onclick="action('defend', 1)">Defender (-10 energia)</button>
+                <button onclick="action('recharge', 1)">Recarregar (<span id="recharges1">3</span> grátis)</button>
+                <button id="hunt1" style="display: none;" onclick="sendHunter(1)">Enviar Caçador</button>
+            </div>
+            <div class="player-panel" id="player2">
+                <h2>Jogador 2</h2>
+                <div class="resource">Vida: <span id="health2">100</span></div>
+                <div class="bar"><div id="healthBar2" class="bar-fill health-bar"></div></div>
+                <div class="resource">Escudos: <span id="shields2">50</span></div>
+                <div class="bar"><div id="shieldBar2" class="bar-fill shield-bar"></div></div>
+                <div class="resource">Energia: <span id="energy2">100</span></div>
+                <div class="bar"><div id="energyBar2" class="bar-fill energy-bar"></div></div>
+                <button onclick="action('attack', 2)">Atacar (-20 energia)</button>
+                <button onclick="action('defend', 2)">Defender (-10 energia)</button>
+                <button onclick="action('recharge', 2)">Recarregar (<span id="recharges2">3</span> grátis)</button>
+                <button id="hunt2" style="display: none;" onclick="sendHunter(2)">Enviar Caçador</button>
+            </div>
+        </div>
+        <div id="battle-log"></div>
+    </div>
+
+    <script>
+        const players = [
+            { health: 100, shields: 50, energy: 100, lastAction: '', freeRecharges: 3, hunterSent: false },
+            { health: 100, shields: 50, energy: 100, lastAction: '', freeRecharges: 3, hunterSent: false }
+        ];
+        let currentPlayer = 0;
+
+        function action(type, player) {
+            const playerIndex = player - 1;
+            const opponent = playerIndex === 0 ? 1 : 0;
+
+            if (currentPlayer !== playerIndex) {
+                log(`Não é a vez do Jogador ${player}`);
+                return;
+            }
+
+            switch(type) {
+                case 'attack':
+                    if (players[playerIndex].energy >= 20) {
+                        players[playerIndex].energy -= 20;
+                        if (Math.random() < 0.15) {
+                            log(`O ataque do Jogador ${player} falhou!`);
+                        } else if (players[opponent].lastAction !== 'defend') {
+                            const damage = 20;
+                            if (players[opponent].shields > 0) {
+                                players[opponent].shields -= damage;
+                                if (players[opponent].shields < 0) {
+                                    players[opponent].shields = 0;
+                                }
+                                log(`Jogador ${player} atacou e causou ${damage} de dano no escudo do Jogador ${opponent + 1}!`);
+                            } else {
+                                players[opponent].health -= damage;
+                                log(`Jogador ${player} atacou e causou ${damage} de dano na vida do Jogador ${opponent + 1}!`);
+                            }
+                        } else {
+                            log(`Jogador ${player} atacou, mas o Jogador ${opponent + 1} defendeu!`);
+                        }
+                    } else {
+                        log(`Jogador ${player} não tem energia suficiente para atacar!`);
+                        players[playerIndex].health -= 20;
+                        log(`Jogador ${player} perdeu 20 de vida por falta de energia!`);
+                    }
+                    endTurn();
+                    break;
+                case 'defend':
+                    if (players[playerIndex].energy >= 10) {
+                        players[playerIndex].energy -= 10;
+                        players[playerIndex].shields = Math.min(50, players[playerIndex].shields + 20);
+                        log(`Jogador ${player} fortaleceu seus escudos!`);
+                    } else {
+                        log(`Jogador ${player} não tem energia suficiente para defender!`);
+                        players[playerIndex].health -= 20;
+                        log(`Jogador ${player} perdeu 20 de vida por falta de energia!`);
+                    }
+                    endTurn();
+                    break;
+                case 'recharge':
+                    if (players[playerIndex].freeRecharges > 0) {
+                        players[playerIndex].energy = Math.min(100, players[playerIndex].energy + 30);
+                        players[playerIndex].freeRecharges--;
+                        log(`Jogador ${player} recarregou energia! (${players[playerIndex].freeRecharges} recargas grátis restantes)`);
+                        endTurn();
+                    } else {
+                        document.getElementById(`hunt${player}`).style.display = 'inline-block';
+                    }
+                    break;
+            }
+
+            players[playerIndex].lastAction = type;
+        }
+
+        function sendHunter(player) {
+            const playerIndex = player - 1;
+            players[playerIndex].hunterSent = true;
+            document.getElementById(`hunt${player}`).style.display = 'none';
+            log(`Jogador ${player} enviou um caçador para buscar recursos.`);
+            endTurn();
+        }
+
+        function endTurn() {
+            updateUI();
+            checkGameOver();
+            currentPlayer = currentPlayer === 0 ? 1 : 0;
+            highlightCurrentPlayer();
+
+            // Check for hunter return
+            const playerIndex = currentPlayer;
+            if (players[playerIndex].hunterSent) {
+                players[playerIndex].hunterSent = false;
+                const result = Math.floor(Math.random() * 3);
+                switch(result) {
+                    case 0:
+                        players[playerIndex].energy = Math.min(100, players[playerIndex].energy + 15);
+                        showValuePopup(playerIndex, 'energy', '+15');
+                        log(`O caçador do Jogador ${playerIndex + 1} retornou com uma bateria!`);
+                        break;
+                    case 1:
+                        players[playerIndex].health = Math.min(100, players[playerIndex].health + 10);
+                        showValuePopup(playerIndex, 'health', '+10');
+                        log(`O caçador do Jogador ${playerIndex + 1} retornou com um remédio!`);
+                        break;
+                    case 2:
+                        log(`O caçador do Jogador ${playerIndex + 1} retornou de mãos vazias.`);
+                        break;
+                }
+                updateUI();
+            }
+        }
+
+        function showValuePopup(playerIndex, type, value) {
+            const element = document.getElementById(`${type}${playerIndex + 1}`);
+            const popup = document.createElement('div');
+            popup.className = 'value-popup';
+            popup.textContent = value;
+            popup.style.color = type === 'health' ? '#ff4136' : type === 'energy' ? '#2ECC40' : '#0074D9';
+            popup.style.left = `${element.offsetLeft + element.offsetWidth / 2}px`;
+            popup.style.top = `${element.offsetTop - 20}px`;
+            document.body.appendChild(popup);
+
+            setTimeout(() => {
+                popup.style.opacity = '1';
+            }, 10);
+
+            setTimeout(() => {
+                popup.style.opacity = '0';
+                setTimeout(() => {
+                    document.body.removeChild(popup);
+                }, 500);
+            }, 1000);
+        }
+
+        function updateUI() {
+            for (let i = 0; i < 2; i++) {
+                document.getElementById(`health${i+1}`).textContent = Math.max(0, players[i].health);
+                document.getElementById(`shields${i+1}`).textContent = Math.max(0, players[i].shields);
+                document.getElementById(`energy${i+1}`).textContent = Math.max(0, players[i].energy);
+                document.getElementById(`recharges${i+1}`).textContent = players[i].freeRecharges;
+                
+                document.getElementById(`healthBar${i+1}`).style.width = `${Math.max(0, players[i].health)}%`;
+                document.getElementById(`shieldBar${i+1}`).style.width = `${Math.max(0, players[i].shields * 2)}%`;
+                document.getElementById(`energyBar${i+1}`).style.width = `${Math.max(0, players[i].energy)}%`;
+            }
+        }
+
+        function highlightCurrentPlayer() {
+            document.getElementById('player1').classList.toggle('active-player', currentPlayer === 0);
+            document.getElementById('player2').classList.toggle('active-player', currentPlayer === 1);
+        }
+
+        function log(message) {
+            const battleLog = document.getElementById('battle-log');
+            battleLog.innerHTML += `<p>${message}</p>`;
+            battleLog.scrollTop = battleLog.scrollHeight;
+        }
+
+        function checkGameOver() {
+            for (let i = 0; i < 2; i++) {
+                if (players[i].health <= 0) {
+                    log(`Jogador ${i === 0 ? 2 : 1} venceu a batalha!`);
+                    disableButtons();
+                }
+            }
+        }
+
+        function disableButtons() {
+            const buttons = document.getElementsByTagName('button');
+            for (let button of buttons) {
+                button.disabled = true;
+            }
+        }
+
+        highlightCurrentPlayer();
+        updateUI();
+    </script>
+</body>
+</html>

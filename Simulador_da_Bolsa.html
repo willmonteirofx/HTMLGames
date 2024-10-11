@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Bolsa de Valores</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: rgb(32, 35, 37);
+            font-size: 14px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            color: rgb(200, 195, 188);
+        }
+        #portfolio {
+            padding: 24px;
+            background-color: rgb(24, 26, 27);
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin: 20px;
+            margin-bottom: 0;
+        }
+        #portfolio h2 {
+            color: rgb(200, 195, 188);
+            font-size: 1.5em;
+            margin-bottom: 15px;
+        }
+        #portfolio p {
+            font-size: 1.1em;
+            color: rgb(200, 195, 188);
+        }
+        #holdings {
+            list-style-type: none;
+            padding: 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        #holdings li {
+            background-color: rgb(37, 39, 41);
+            padding: 10px;
+            border-radius: 5px;
+            flex: 1 1 auto;
+        }
+        .content-container {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 50px);
+            overflow-y: auto;
+        }
+        .stock-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 20px;
+            padding: 20px;
+        }
+        .stock-wrapper {
+            width: calc(33.33% - 14px);
+            margin-bottom: 20px;
+        }
+        .stock {
+            width: 100%;
+            height: auto;
+            padding: 16px;
+            background-color: rgb(24, 26, 27);
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 10px;
+        }
+        .chart-container {
+            height: 250px;
+        }
+        .stock-details-card {
+            width: 100%;
+            padding: 16px;
+            background-color: rgb(24, 26, 27);
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            box-sizing: border-box;
+        }
+        .stock-unit {
+            background-color: rgb(37, 39, 41);
+            padding: 10px;
+            border-radius: 5px;
+            flex: 1 1 auto;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+        button {
+            margin: 2px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            background-color: rgb(34, 136, 0);
+            color: rgb(200, 195, 188);
+            border: none;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: rgb(28, 115, 0);
+        }
+        h1, h2 {
+            margin-top: 0;
+            font-size: 1.2em;
+            color: rgb(200, 195, 188);
+        }
+    </style>
+</head>
+<body>
+    <div id="portfolio">
+        <h2>Seu Portfólio</h2>
+        <p>Saldo: R$<span id="balance">10000</span> | Rentabilidade: R$<span id="portfolio-profit-loss">0.00</span> (<span id="portfolio-profit-loss-percentage">0.00%</span>)</p>
+        <ul id="holdings"></ul>
+    </div>
+    
+    <div class="content-container">
+        <div class="stock-container" id="stockContainer"></div>
+    </div>
+
+    <script>
+        const stocks = [
+            {name: 'Facebook', symbol: 'FB', price: Math.random() * 290 + 10},
+            {name: 'NVIDIA', symbol: 'NVDA', price: Math.random() * 290 + 10},
+            {name: 'Petrobras', symbol: 'PETR4', price: Math.random() * 290 + 10}
+        ];
+
+        let initialBalance = 10000;
+        let balance = initialBalance;
+        let portfolio = {};
+
+        function updatePrice(stock) {
+            const change = (Math.random() - 0.5) * 0.1;
+            stock.price *= (1 + change);
+            stock.price = parseFloat(stock.price.toFixed(2));
+            return change;
+        }
+
+        function updateChart(chart, price) {
+            chart.data.labels.push('');
+            chart.data.datasets[0].data.push(price);
+            if (chart.data.labels.length > 20) {
+                chart.data.labels.shift();
+                chart.data.datasets[0].data.shift();
+            }
+            const data = chart.data.datasets[0].data;
+            const trend = data[data.length - 1] > data[0] ? 'up' : 'down';
+            chart.data.datasets[0].borderColor = trend === 'up' ? 'rgb(75, 192, 75)' : 'rgb(192, 75, 75)';
+            chart.update();
+        }
+
+        function createStockElement(stock) {
+            const stockWrapper = document.createElement('div');
+            stockWrapper.className = 'stock-wrapper';
+            
+            const stockDiv = document.createElement('div');
+            stockDiv.className = 'stock';
+            stockDiv.innerHTML = `
+                <h2>${stock.name} (${stock.symbol})</h2>
+                <p>Preço: R$<span id="${stock.symbol}-price">${stock.price.toFixed(2)}</span></p>
+                <p id="${stock.symbol}-profit-loss-container" style="display:none;">Rentabilidade: R$<span id="${stock.symbol}-profit-loss">0.00 (0.00%)</span></p>
+                <div class="chart-container"><canvas id="${stock.symbol}-chart"></canvas></div>
+                <div>
+                    <button onclick="buyStock('${stock.symbol}')">Comprar</button>
+                    <button onclick="sellStock('${stock.symbol}', 1)">Vender 1</button>
+                    <button onclick="sellStock('${stock.symbol}', 'all')">Vender Todas</button>
+                </div>
+            `;
+            
+            const logDiv = document.createElement('div');
+            logDiv.className = 'stock-details-card';
+            logDiv.id = `${stock.symbol}-details`;
+            logDiv.innerHTML = `<h3>${stock.name} - Unidades Compradas</h3>`;
+            
+            stockWrapper.appendChild(stockDiv);
+            stockWrapper.appendChild(logDiv);
+            document.getElementById('stockContainer').appendChild(stockWrapper);
+
+            const ctx = document.getElementById(`${stock.symbol}-chart`).getContext('2d');
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Preço',
+                        data: [],
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+        }
+
+        const charts = stocks.reduce((acc, stock) => {
+            acc[stock.symbol] = createStockElement(stock);
+            return acc;
+        }, {});
+
+        function updateStocks() {
+            stocks.forEach(stock => {
+                const change = updatePrice(stock);
+                document.getElementById(`${stock.symbol}-price`).textContent = stock.price.toFixed(2);
+                updateChart(charts[stock.symbol], stock.price);
+                updateStockDetails(stock.symbol);
+            });
+        }
+
+        function buyStock(symbol) {
+            const stock = stocks.find(s => s.symbol === symbol);
+            if (balance >= stock.price) {
+                balance -= stock.price;
+                if (!portfolio[symbol]) {
+                    portfolio[symbol] = [];
+                }
+                portfolio[symbol].push({
+                    purchasePrice: stock.price,
+                    currentPrice: stock.price
+                });
+                updatePortfolio();
+                updateStockDetails(symbol);
+            } else {
+                alert('Saldo insuficiente!');
+            }
+        }
+
+        function sellStock(symbol, amount) {
+            if (portfolio[symbol] && portfolio[symbol].length > 0) {
+                const stock = stocks.find(s => s.symbol === symbol);
+                const quantityToSell = amount === 'all' ? portfolio[symbol].length : Math.min(amount, portfolio[symbol].length);
+                
+                for (let i = 0; i < quantityToSell; i++) {
+                    balance += stock.price;
+                    portfolio[symbol].pop();
+                }
+                
+                if (portfolio[symbol].length === 0) {
+                    delete portfolio[symbol];
+                }
+                
+                updatePortfolio();
+                updateStockDetails(symbol);
+            } else {
+                alert('Você não possui ações desta empresa para vender!');
+            }
+        }
+
+        function updateStockDetails(symbol) {
+            const stock = stocks.find(s => s.symbol === symbol);
+            const holdings = portfolio[symbol];
+            const detailsContainer = document.getElementById(`${symbol}-details`);
+            const profitLossContainer = document.getElementById(`${symbol}-profit-loss-container`);
+            const profitLossElement = document.getElementById(`${symbol}-profit-loss`);
+            
+            if (holdings && holdings.length > 0) {
+                let totalProfitLoss = 0;
+                let detailsHTML = `<h3>${stock.name} - Unidades Compradas</h3>`;
+                
+                holdings.forEach((unit, index) => {
+                    const unitProfitLoss = stock.price - unit.purchasePrice;
+                    const unitProfitLossPercentage = ((stock.price / unit.purchasePrice) - 1) * 100;
+                    totalProfitLoss += unitProfitLoss;
+                    
+                    detailsHTML += `
+                        <div class="stock-unit">
+                            Unidade ${index + 1}: Compra R$${unit.purchasePrice.toFixed(2)} | 
+                            Atual R$${stock.price.toFixed(2)} | 
+                            Lucro/Prejuízo: ${unitProfitLoss >= 0 ? '+' : '-'}R$${Math.abs(unitProfitLoss).toFixed(2)} (${unitProfitLossPercentage.toFixed(2)}%)
+                        </div>
+                    `;
+                });
+                
+                detailsContainer.innerHTML = detailsHTML;
+                
+                const avgProfitLoss = totalProfitLoss / holdings.length;
+                const avgProfitLossPercentage = ((stock.price / (holdings.reduce((sum, unit) => sum + unit.purchasePrice, 0) / holdings.length)) - 1) * 100;
+                
+                profitLossContainer.style.display = 'block';
+                profitLossElement.textContent = `${avgProfitLoss >= 0 ? '+' : '-'}R$${Math.abs(avgProfitLoss).toFixed(2)} (${avgProfitLossPercentage.toFixed(2)}%)`;
+                profitLossElement.style.color = avgProfitLoss >= 0 ? 'green' : 'red';
+            } else {
+                detailsContainer.innerHTML = `<h3>${stock.name} - Unidades Compradas</h3>`;
+                profitLossContainer.style.display = 'none';
+            }
+        }
+
+        function updatePortfolio() {
+            document.getElementById('balance').textContent = balance.toFixed(2);
+            const holdingsList = document.getElementById('holdings');
+            holdingsList.innerHTML = '';
+
+            let totalPortfolioValue = 0;
+            for (const [symbol, holdings] of Object.entries(portfolio)) {
+                if (holdings.length > 0) {
+                    const stock = stocks.find(s => s.symbol === symbol);
+                    const quantity = holdings.length;
+                    const value = quantity * stock.price;
+                    totalPortfolioValue += value;
+                    const li = document.createElement('li');
+                    li.textContent = `${symbol}: ${quantity} ações - Valor: R$${value.toFixed(2)}`;
+                    holdingsList.appendChild(li);
+                }
+            }
+
+            const portfolioProfitLoss = totalPortfolioValue + balance - initialBalance;
+            const portfolioProfitLossPercentage = ((totalPortfolioValue + balance) / initialBalance - 1) * 100;
+            document.getElementById('portfolio-profit-loss').textContent = `${portfolioProfitLoss >= 0 ? '+' : '-'}${Math.abs(portfolioProfitLoss).toFixed(2)}`;
+            document.getElementById('portfolio-profit-loss-percentage').textContent = portfolioProfitLossPercentage.toFixed(2) + '%';
+            document.getElementById('portfolio-profit-loss').style.color = portfolioProfitLoss >= 0 ? 'green' : 'red';
+            document.getElementById('portfolio-profit-loss-percentage').style.color = portfolioProfitLoss >= 0 ? 'green' : 'red';
+        }
+
+        setInterval(updateStocks, 2000);
+    </script>
+</body>
+</html>

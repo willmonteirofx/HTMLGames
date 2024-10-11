@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Horse Racing Betting Game - P2P</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-6">Horse Racing Betting Game</h1>
+        
+        <div id="connection" class="mb-6">
+            <div id="myPeerId" class="text-lg font-semibold mb-2">Your Peer ID: <span class="text-blue-600"></span></div>
+            <input type="text" id="peerIdInput" placeholder="Enter Peer ID" class="p-2 border rounded">
+            <button id="connectBtn" class="bg-blue-500 text-white p-2 rounded">Connect</button>
+        </div>
+
+        <div id="game" class="hidden">
+            <div id="wallet" class="text-xl font-bold mb-4">Saldo: R$ <span id="walletAmount">100</span></div>
+
+            <div id="racetrack" class="bg-green-200 h-64 relative mb-6">
+                <div id="horse1" class="absolute top-0 left-0 w-16 h-16 bg-red-500"></div>
+                <div id="horse2" class="absolute top-16 left-0 w-16 h-16 bg-blue-500"></div>
+                <div id="horse3" class="absolute top-32 left-0 w-16 h-16 bg-yellow-500"></div>
+                <div id="horse4" class="absolute top-48 left-0 w-16 h-16 bg-purple-500"></div>
+            </div>
+
+            <div id="betting" class="mb-6">
+                <select id="horseSelect" class="p-2 border rounded">
+                    <option value="1">Horse 1</option>
+                    <option value="2">Horse 2</option>
+                    <option value="3">Horse 3</option>
+                    <option value="4">Horse 4</option>
+                </select>
+                <input type="number" id="betAmount" placeholder="Bet Amount" class="p-2 border rounded">
+                <button id="placeBetBtn" class="bg-green-500 text-white p-2 rounded">Place Bet</button>
+            </div>
+
+            <button id="startRaceBtn" class="bg-red-500 text-white p-2 rounded mb-6">Start Race</button>
+
+            <div id="result" class="text-xl font-bold mb-4"></div>
+
+            <button id="newRaceBtn" class="bg-blue-500 text-white p-2 rounded hidden">New Race</button>
+        </div>
+    </div>
+
+    <script>
+        const peer = new Peer();
+        let conn;
+        let myTurn = false;
+        let horses = [
+            { id: 'horse1', position: 0 },
+            { id: 'horse2', position: 0 },
+            { id: 'horse3', position: 0 },
+            { id: 'horse4', position: 0 }
+        ];
+        let selectedHorse;
+        let betAmount;
+        let wallet = 100;
+        let opponentBetAmount = 0;
+        let raceInProgress = false;
+        let bothPlayersReady = false;
+
+        peer.on('open', (id) => {
+            console.log('My peer ID is: ' + id);
+            document.querySelector('#myPeerId span').textContent = id;
+        });
+
+        document.getElementById('connectBtn').addEventListener('click', () => {
+            const peerId = document.getElementById('peerIdInput').value;
+            conn = peer.connect(peerId);
+            setupConnection();
+        });
+
+        peer.on('connection', (connection) => {
+            conn = connection;
+            setupConnection();
+        });
+
+        function setupConnection() {
+            conn.on('open', () => {
+                document.getElementById('connection').classList.add('hidden');
+                document.getElementById('game').classList.remove('hidden');
+                myTurn = true;
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'horsePositions') {
+                    updateHorsePositions(data.positions);
+                } else if (data.type === 'raceResult') {
+                    showResult(data.winner, data.totalBet);
+                } else if (data.type === 'placeBet') {
+                    updateOpponentBet(data.horse, data.amount);
+                } else if (data.type === 'newRace') {
+                    resetRace();
+                } else if (data.type === 'ready') {
+                    bothPlayersReady = true;
+                    if (myTurn) {
+                        document.getElementById('startRaceBtn').disabled = false;
+                    }
+                }
+            });
+        }
+
+        document.getElementById('placeBetBtn').addEventListener('click', () => {
+            if (raceInProgress) return;
+            selectedHorse = document.getElementById('horseSelect').value;
+            betAmount = parseInt(document.getElementById('betAmount').value);
+            if (betAmount > wallet) {
+                alert('Você não tem saldo suficiente para essa aposta!');
+                return;
+            }
+            wallet -= betAmount;
+            updateWallet();
+            conn.send({ type: 'placeBet', horse: selectedHorse, amount: betAmount });
+            document.getElementById('placeBetBtn').disabled = true;
+            conn.send({ type: 'ready' });
+            if (bothPlayersReady && myTurn) {
+                document.getElementById('startRaceBtn').disabled = false;
+            }
+        });
+
+        document.getElementById('startRaceBtn').addEventListener('click', () => {
+            if (myTurn && !raceInProgress && bothPlayersReady) {
+                startRace();
+            }
+        });
+
+        document.getElementById('newRaceBtn').addEventListener('click', () => {
+            resetRace();
+            conn.send({ type: 'newRace' });
+        });
+
+        function startRace() {
+            raceInProgress = true;
+            document.getElementById('startRaceBtn').disabled = true;
+            const raceInterval = setInterval(() => {
+                horses.forEach(horse => {
+                    horse.position += Math.random() * 5;
+                    document.getElementById(horse.id).style.left = `${horse.position}%`;
+                });
+
+                conn.send({ type: 'horsePositions', positions: horses.map(h => h.position) });
+
+                if (horses.some(h => h.position >= 100)) {
+                    clearInterval(raceInterval);
+                    const winner = horses.reduce((prev, current) => (prev.position > current.position) ? prev : current);
+                    const totalBet = parseInt(betAmount) + parseInt(opponentBetAmount);
+                    conn.send({ type: 'raceResult', winner: winner.id, totalBet: totalBet });
+                    showResult(winner.id, totalBet);
+                    raceInProgress = false;
+                }
+            }, 200);
+        }
+
+        function updateHorsePositions(positions) {
+            horses.forEach((horse, index) => {
+                horse.position = positions[index];
+                document.getElementById(horse.id).style.left = `${horse.position}%`;
+            });
+        }
+
+        function showResult(winnerId, totalBet) {
+            const resultElement = document.getElementById('result');
+            resultElement.textContent = `${winnerId} wins!`;
+            
+            if (winnerId === `horse${selectedHorse}`) {
+                resultElement.textContent += ` Você ganhou R$${totalBet}!`;
+                wallet += totalBet;
+            } else {
+                resultElement.textContent += ` Você perdeu R$${betAmount}.`;
+            }
+
+            updateWallet();
+            myTurn = !myTurn;
+            document.getElementById('newRaceBtn').classList.remove('hidden');
+        }
+
+        function updateWallet() {
+            document.getElementById('walletAmount').textContent = wallet;
+        }
+
+        function updateOpponentBet(horse, amount) {
+            opponentBetAmount = amount;
+        }
+
+        function resetRace() {
+            horses.forEach(horse => {
+                horse.position = 0;
+                document.getElementById(horse.id).style.left = '0%';
+            });
+            document.getElementById('result').textContent = '';
+            document.getElementById('newRaceBtn').classList.add('hidden');
+            selectedHorse = null;
+            betAmount = 0;
+            opponentBetAmount = 0;
+            document.getElementById('betAmount').value = '';
+            document.getElementById('placeBetBtn').disabled = false;
+            document.getElementById('startRaceBtn').disabled = true;
+            raceInProgress = false;
+            bothPlayersReady = false;
+        }
+    </script>
+</body>
+</html>
